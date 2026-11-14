@@ -1,0 +1,54 @@
+[package]
+name = "corvid-eq"
+version = "0.1.0"
+description = "A visual parametric EQ for Equalizer APO"
+authors = ["Igor Mitrović"]
+license = "MIT"
+repository = "https://github.com/eegor111/CorvidEQ"
+edition = "2021"
+rust-version = "1.90"
+
+[lib]
+# The `_lib` suffix avoids a name clash with the binary on Windows.
+name = "corvid_eq_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = ["tray-icon"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+cpal = "0.18"
+realfft = "3.5"
+# Same version cpal uses: reads each output's volume control and effect list
+# (devices.rs). Only the parts we call are switched on.
+windows = { version = "0.62", features = [
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Com",
+    "Win32_System_Registry",
+    # ShellExecute: open a web address in the browser.
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+tauri-plugin-dialog = "2"
+tauri-plugin-process = "2"
+# A second start brings the open window to the front instead (lib.rs).
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
+
+[profile.dev]
+# The analyzer runs an 8192-point FFT 60 times a second; unoptimized it
+# drops frames in `tauri dev`. Light optimization for our own code keeps
+# rebuilds quick; dependencies (the FFT) are built once, fully optimized.
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+# Smaller, faster release builds.
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,928 @@
+/*
+ * CorvidEQ styles.
+ *
+ * Colors come from the theme (ui/theme/theme.ts), applied as CSS
+ * variables on <html>. This file only combines them into the few derived
+ * tokens below. Never hard-code a color in this file: add a theme role.
+ *
+ * Rule of thumb: shapes are translucent, only the colored marks are fully opaque.
+ */
+@import '@fontsource/oxanium/latin-400.css';
+@import '@fontsource/oxanium/latin-500.css';
+@import '@fontsource/oxanium/latin-600.css';
+@import '@fontsource/oxanium/latin-800.css';
+
+:root {
+  /* Everything below is derived from the palettes' few colors. applyTheme
+     (ui/theme/active.ts) sets: --bg, --surface and --surface-raised
+     (see-through levels), --text, --text-dim, --text-faint (worked out),
+     --base-rgb (frame, red), --accent-rgb (secondary, cyan), --selected-rgb
+     (primary, yellow), --danger-rgb, --analyzer-rgb (the analyzer palette's red),
+     and, computed in OKLCH: the outlines (--edge < --edge-button <
+     --edge-strong < --hover: the frame laid over the surface, opaque) and the
+     colored small text (--scale = scale numbers, --curve = the EQ curve:
+     lightened, hue turned toward yellow).
+     Grid lines stay see-through: they're drawn over the analyzer. */
+  --grid: rgb(var(--base-rgb) / 0.1);
+  --grid-major: rgb(var(--base-rgb) / 0.22);
+  --zero-line: rgb(var(--base-rgb) / 0.4);
+  --base: rgb(var(--base-rgb));
+  --accent: rgb(var(--accent-rgb));
+  --selected: rgb(var(--selected-rgb));
+  --warning: rgb(var(--danger-rgb));
+  --graph-bg: color-mix(in srgb, var(--bg) 75%, transparent);
+  --node-base: color-mix(in srgb, var(--bg) 86%, transparent);
+  /* Behind editable numbers and the band counter: darker than the background. */
+  --field-bg: color-mix(in srgb, var(--bg) 45%, black);
+  /* Hover on a dark field (numbers, band counter, preset name): it turns dark cyan. */
+  --field-hover: color-mix(in srgb, var(--field-bg) 78%, var(--accent));
+  /* Background of anything switched on: a faint yellow. */
+  --selected-tint: rgb(var(--selected-rgb) / 0.12);
+
+  --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  /* The app's name stays in Oxanium whatever font Settings picks for --font. */
+  --font-brand: 'Oxanium', 'Segoe UI', system-ui, sans-serif;
+
+  /* Type scale: readable at a glance, at arm's length. */
+  --fs-label: 14px;   /* graph labels, row labels */
+  --fs-body: 16px;    /* buttons, everything else */
+  --fs-node: 22px;    /* numbers in the graph nodes */
+
+  /* Fader circle radius. Nodes on the graph are twice this circle's size. */
+  --thumb-r: 9px;
+  /* Outline and border thickness. Corners are
+     sharp everywhere (border-radius: 0); only fader parts, knobs and the round
+     toggles (band numbers, the Level ring) are round. */
+  --line: 2px;
+  /* Layout: width of the dB scale column, the gaps between columns and
+     between rows, and the height of the frequency scale's row. */
+  --scale-w: 36px;
+  --col-gap: 8px;
+  --row-gap: 8px;
+  --axis-h: 40px;
+  /* Scale labels sit a little above their line's center: digits have no
+     descenders, so this looks centered. */
+  --label-dy: -30%;
+
+  color-scheme: dark;
+  font: 500 var(--fs-body)/1.35 var(--font);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+* { box-sizing: border-box; }
+/* Scrollbars: red thumb on a dark track, sharp like everything else. */
+* { scrollbar-color: rgb(var(--base-rgb) / 0.7) transparent; scrollbar-width: thin; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgb(var(--base-rgb) / 0.7); }
+::-webkit-scrollbar-thumb:hover { background: var(--base); }
+html, body, #root { height: 100%; margin: 0; }
+body { overflow: hidden; user-select: none; background: transparent; }
+
+/* Every button starts plain: no box, no size. Each control styles itself,
+   so none has to undo a look it never wanted. The border is there (but
+   transparent) so hover and "on" outlines never shift anything. */
+button {
+  font: inherit; color: var(--text-dim);
+  background: none;
+  border: var(--line) solid transparent;
+  border-radius: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, box-shadow 0.12s;
+}
+button:disabled { opacity: 0.35; cursor: default; }
+/* The boxed look (most buttons in the bars and on the graph): a translucent
+   box with the clickable red outline, a large target. */
+.btn {
+  background: var(--surface-raised);
+  border-color: var(--edge-button);
+  padding: 0 16px;
+  height: 42px;
+}
+
+/* ---------- Interaction states: ONE standard for every control ----------
+ * Hover    = the outline turns a slightly brighter red (--hover), like a fader bar.
+ * Selected = the outline turns the selected color (yellow), for anything
+ *            switched on or chosen. No glows on either: sharp lines only.
+ * Hover changes ONLY the outline: no brighter background, no glow.
+ * New controls should reuse these selectors rather than invent their own.
+ */
+button:hover:not(:disabled) { border-color: var(--hover); }
+button.on { border-color: var(--selected); }
+button:focus-visible { outline: var(--line) solid var(--accent); outline-offset: 2px; } /* keyboard focus stays cyan: easy to spot */
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+
+/* ---------- Layout ----------
+ * Columns: level scale | graph | dB scale | band panel
+ * Row 1 is the top bar, full width. Then four rows shared by every column:
+ *   region names, panel heads | graph, faders | freq scale, Freq knobs | bottom bar, Q knobs
+ * The band panel uses subgrid for them. --gain-margin is set from geometry.ts in App.
+ */
+.app {
+  height: 100%;
+  display: grid;
+  grid-template-columns:
+    [scale-l] var(--scale-w) [graph] minmax(0, 1fr) [scale-r] var(--scale-w) [panel] auto [end];
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  column-gap: var(--col-gap);
+  row-gap: var(--row-gap);
+  padding: 12px;
+}
+.topbar { grid-column: scale-l / end; grid-row: 1; }
+.analyzer-scale { grid-column: scale-l; grid-row: 3; }
+.graph { grid-column: graph; grid-row: 3; }
+.db-scale { grid-column: scale-r; grid-row: 3; }
+.freq-axis { grid-column: graph; grid-row: 4; }
+/* From the analyzer scale's left edge (free since the input meter left). */
+.bottombar { grid-column: scale-l / scale-r; grid-row: 5; }
+/* This row is as tall as the taller of the region names and the band panel's
+   shape buttons; the names sit at its bottom, right above the graph. */
+.regions { grid-column: graph; grid-row: 2; align-self: end; }
+/* Hz: placed by FreqAxis (centered between 10k and the meter), so it may
+   reach past the strip into the column gap. */
+.freq-axis { overflow: visible; }
+/* "Hz" (FreqUnit): the analyzer scale's column, the frequency scale's row,
+   centered like the "dB" above it and at the height of the frequency labels. */
+.freq-unit { grid-column: scale-l; grid-row: 4; position: relative; height: var(--axis-h); }
+.freq-unit span {
+  position: absolute; left: 0; right: 0; top: 50%;
+  transform: translateY(var(--label-dy)); text-align: center;
+  font: 600 var(--fs-label)/1 var(--font); color: var(--scale);
+}
+.level-meter.output { grid-column: scale-r; grid-row: 4 / 6; }
+.band-panel { grid-column: panel; grid-row: 2 / 6; }
+
+/* Icon toggles (power, bypass, settings): just the icon, no box.
+   Off = dim, on = yellow (selected); hover brightens the icon. */
+button.icon-toggle {
+  width: 42px; height: 42px; padding: 0;
+  display: grid; place-items: center;
+  color: var(--text-faint);
+}
+button.icon-toggle svg { width: 30px; height: 30px; }
+button.icon-toggle:hover:not(:disabled) { border-color: transparent; color: var(--text-dim); }
+button.icon-toggle.on, button.icon-toggle.on:hover:not(:disabled) { color: var(--selected); border-color: transparent; }
+
+/* Region names and frequency scale: same side borders as the graph, so the
+   labels line up with the graph's grid lines. */
+.axis-strip { position: relative; border-left: var(--line) solid transparent; border-right: var(--line) solid transparent; }
+.axis-strip svg { position: absolute; inset: 0; display: block; }
+.axis-strip text { fill: var(--scale); font: 500 var(--fs-label) var(--font); }
+.axis-strip line { stroke: color-mix(in srgb, var(--scale) 50%, transparent); }
+.regions { height: 34px; }
+/* Region names: the theme's normal text color, like the left scale (EXPERIMENT). */
+.regions text { letter-spacing: 0.02em; fill: var(--text-dim); }
+.regions line { stroke: color-mix(in srgb, var(--base) 50%, transparent); }
+.freq-axis { height: var(--axis-h); }
+.freq-label {
+  position: absolute; top: 50%;
+  transform: translate(-50%, var(--label-dy));
+  font: 600 var(--fs-label)/1 var(--font);
+  color: var(--scale);
+}
+.freq-label.first { transform: translate(0, var(--label-dy)); }
+
+/* dB scale: its own column between the graph and the band panel, the same
+   height and border width as the graph, so labels sit on its grid lines.
+   The whole column is the zoom button (outline only on hover). Labels are
+   HTML, not SVG, so Windows renders them as crisp as normal text. */
+.db-scale { position: relative; min-height: 0; }
+.scale-label {
+  position: absolute; left: 0; right: 0;
+  transform: translateY(-50%);
+  text-align: center;
+  font: 600 var(--fs-label)/1 var(--font);
+  color: var(--scale);
+  pointer-events: none;
+}
+
+/* Analyzer level scale: like the dB scale, left of the graph, in the theme's
+   normal text color (--text-dim, like button labels; EXPERIMENT, it was the
+   analyzer's red). Not a button. */
+.analyzer-scale { position: relative; border: var(--line) solid transparent; }
+.analyzer-scale .scale-label { color: var(--text-dim); }
+
+/* ---------- Graph ---------- */
+.graph {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--graph-bg);
+  border: var(--line) solid var(--edge);
+  border-radius: 0;
+  overflow: hidden;
+}
+/* Fullscreen (GraphTools): nothing behind it to see through to, no frame. */
+.graph:fullscreen { background: var(--bg); border: none; }
+/* The two layers that fill the graph: the analyzer (canvas) and the EQ drawing
+   (svg). Named, so icons in the graph's buttons aren't caught by this. */
+.graph .spectrum, .graph .plot { position: absolute; inset: 0; display: block; }
+.plot { touch-action: none; cursor: crosshair; }
+
+.grid line { stroke: var(--grid); stroke-width: 1; }
+.grid line.major { stroke: var(--grid-major); }
+.grid line.zero { stroke: var(--zero-line); }
+/* 8 kHz: just a hint, a light cyan line with no label. */
+.grid line.hint { stroke: rgb(var(--accent-rgb) / 0.22); }
+/* Above 20 kHz (beyond hearing): a faint wash of the grid's own color. */
+.grid .beyond-hearing { fill: var(--grid); opacity: 0.35; }
+/* The output's Nyquist frequency (half its sample rate), when inside the graph. */
+.grid line.nyquist { stroke: var(--grid-major); stroke-dasharray: 4 4; }
+
+.curve {
+  fill: none;
+  stroke: var(--curve);
+  stroke-width: 2.25;
+  stroke-linejoin: round;
+}
+
+.curve-heard {
+  fill: none;
+  stroke: var(--curve);
+  stroke-width: 2;
+  stroke-dasharray: 6 5;
+  opacity: 0.5;
+  transition: opacity 0.12s;
+}
+/* Pointer on the Level column: the dashed curve lights up. */
+.curve-heard.hot { opacity: 1; stroke-width: 3; }
+
+/* Split L/R EQ: faint red reference curve of the channel not on screen. */
+.curve-other {
+  fill: none;
+  stroke: rgb(var(--analyzer-rgb) / 0.4);
+  stroke-width: 1.75;
+  stroke-dasharray: 4 4;
+  stroke-linejoin: round;
+}
+
+/* Bypassed (B / the Bypass button; .app.bypassed in App.tsx): the EQ isn't
+   applied, so everything that shows it turns gray and dim: the curve and its
+   fill, the band areas, the nodes and every fader. A grayscale filter (not a
+   blur: cheap) and only while bypassed. */
+.app.bypassed :is(.curve, .curve-fill, .curve-heard, .curve-other, .band-area, .dot),
+.app.bypassed .col-fader .fader,
+.app.eq-off .col-fader .fader {
+  filter: grayscale(1);
+  opacity: 0.45;
+}
+/* Power off (desktop: Equalizer APO doesn't use CorvidEQ; .app.eq-off): no
+   curve, nodes, band crosshairs or readout at all, and the faders turn gray
+   and dim like when bypassed. The panel stays, so the EQ can still be edited
+   for when it's switched on. */
+.app.eq-off :is(.curve, .curve-fill, .curve-heard, .curve-other, .band-area, .dot, .crosshair.band, .readout) {
+  display: none;
+}
+
+/* Precise values (Readout.tsx): one band's values on the top edge, and a
+   crosshair with its frequency on the bottom edge and gain on the right. */
+.readout {
+  position: absolute; top: 10px; right: 12px;
+  z-index: 3; /* above the graph's buttons (z-index 2) */
+  display: flex; align-items: center; gap: 14px;
+  padding: 6px 12px;
+  font: 600 var(--fs-body)/1 var(--font);
+  color: var(--band);
+  /* Solid, so the graph's buttons don't show through where it covers them. */
+  background: var(--bg);
+  border: var(--line) solid color-mix(in srgb, var(--band) 45%, transparent);
+  border-radius: 0;
+  pointer-events: none;
+  /* Over the graph's buttons (GraphTools, z-index 2) when a long readout reaches them. */
+  z-index: 3;
+}
+/* Dim the contents, not the box: it stays solid over the buttons. */
+.readout.off > * { opacity: 0.55; }
+/* Just the number, in the readout's own color (as bright as the other letters). */
+.readout-num { color: inherit; }
+.readout-off { color: var(--text-faint); }
+/* Showing the selected band (nothing touched): bright like the selected node,
+   its color pushed toward white and a full outline. */
+.readout.bright {
+  color: color-mix(in srgb, var(--band) 60%, white);
+  border-color: var(--band);
+}
+/* The selected band's values can be clicked and typed (Readout.tsx), in
+   the shared editable-number boxes (.num-field, below). */
+.readout.editable { pointer-events: auto; }
+/* Smaller here, to fit the readout's line. */
+.readout .num-field { height: 26px; margin: -4px 0; }
+/* A cut's slope (12 / 24 / 48 dB): one button, the one in use in yellow
+   ("chosen"); the others and "dB" faint. Not selected: no outline. */
+.readout .slope {
+  display: flex; align-items: center; gap: 7px;
+  height: 26px; margin: -4px 0; padding: 0 6px;
+  font: inherit; color: var(--text-faint);
+  background: none; border: var(--line) solid transparent; border-radius: 0;
+}
+.readout button.slope { border-color: var(--edge-button); cursor: pointer; }
+.readout button.slope:hover { border-color: var(--hover); }
+.readout .slope .on { color: var(--selected); }
+
+/* ---------- Editable numbers (NumberField.tsx): ONE look everywhere ----------
+ * A dark box with cyan digits and no outline: "you can type here". Hover =
+ * the box turns dark cyan; typing = yellow outline, like anything active.
+ * The box keeps its size when it becomes a text field, so nothing shifts.
+ * Places only change its size, never its look.
+ */
+/* NumberField's wheel listener: no box of its own. */
+.num-field-wrap { display: contents; }
+.num-field {
+  height: 42px; padding: 0;
+  font: 600 var(--fs-body) var(--font); color: var(--accent);
+  background: var(--field-bg);
+  border: var(--line) solid transparent; border-radius: 0;
+  cursor: text; text-align: center;
+}
+.num-field:hover:not(.editing) { border-color: transparent; background: var(--field-hover); }
+.num-field.editing { border-color: var(--selected); outline: none; }
+.crosshair { position: absolute; inset: 0; pointer-events: none; }
+.crosshair-v, .crosshair-h { position: absolute; background: rgb(var(--accent-rgb) / 0.35); }
+.crosshair-v { top: 0; bottom: 0; width: 1.5px; }
+.crosshair-h { left: 0; right: 0; height: 1.5px; }
+.crosshair-label {
+  position: absolute;
+  padding: 3px 7px;
+  font: 600 var(--fs-label)/1 var(--font);
+  color: var(--scale);
+  background: var(--node-base);
+  border-radius: 0;
+}
+.crosshair-label.hz { bottom: 6px; transform: translateX(-50%); }
+/* Snapped to a node: lines and labels in the band's color. */
+.crosshair.band .crosshair-v, .crosshair.band .crosshair-h { background: color-mix(in srgb, var(--band) 45%, transparent); }
+.crosshair.band .crosshair-label { color: var(--band); border: var(--line) solid color-mix(in srgb, var(--band) 45%, transparent); }
+.crosshair-label.db { right: 6px; transform: translateY(-50%); }
+.crosshair-label.level { left: 6px; transform: translateY(-50%); color: var(--text-dim); } /* the left scale's color: it reads off that scale */
+
+/* Graph nodes (BandDot; switched-off bands only show, dimmed, while touched). Three looks,
+   dimmest to brightest: flat (0 dB: does nothing yet) · shaping (the normal look) ·
+   selected (pushed toward white, thicker ring and a fuller disc; findable at a glance).
+   --ink = ring, arcs and number; --fill = the translucent disc. */
+.dot {
+  cursor: grab;
+  --ink: var(--band);
+  --ink-a: 100%;
+  --fill-a: 12%;
+}
+.dot:active { cursor: grabbing; }
+.dot.flat { --ink-a: 55%; --fill-a: 6%; }
+.dot.hot { --ink-a: 100%; --fill-a: 26%; }
+.dot.off { --ink-a: 35%; }
+.dot.selected:not(.off) { --ink: color-mix(in srgb, var(--band) 60%, white); --ink-a: 100%; --fill-a: 34%; }
+.dot .hit { fill: transparent; }
+.dot .disc-base { fill: var(--node-base); }
+.dot .disc {
+  fill: color-mix(in srgb, var(--band) var(--fill-a), transparent);
+  stroke: color-mix(in srgb, var(--ink) var(--ink-a), transparent);
+  stroke-width: 2;
+  transition: fill 0.12s;
+}
+.dot .q-track { fill: none; stroke-width: 3; stroke: color-mix(in srgb, var(--band) 12%, transparent); }
+.dot .q-arcs { fill: none; stroke-width: 3; stroke-linecap: round; stroke: color-mix(in srgb, var(--ink) var(--ink-a), transparent); }
+.dot text { font: 800 var(--fs-node) var(--font); pointer-events: none; fill: color-mix(in srgb, var(--ink) var(--ink-a), transparent); }
+.dot.hot .q-arcs, .dot.selected .q-arcs { stroke-width: 3.5; }
+.dot.selected .disc { stroke-width: 3; }
+
+.menu {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: 6px;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  border: var(--line) solid var(--edge-strong);
+  border-radius: 0;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
+  z-index: 10;
+}
+.menu button { display: flex; align-items: center; gap: 10px; height: 36px; text-align: left; padding: 0 10px; }
+.menu button:hover:not(:disabled) { color: var(--hover); border-color: var(--base); }
+/* Chosen / switched on: yellow text only; bright red outline only on hover. */
+.menu button.on { color: var(--selected); border-color: transparent; }
+.menu button.on:hover:not(:disabled) { color: var(--selected); }
+.menu hr { border: none; border-top: var(--line) solid var(--edge); margin: 4px 2px; width: auto; }
+
+/* Band counter (BandCount.tsx): one dark box, cyan − and + inside it and the
+   typeable number (.num-field) in the middle, bottom bar height. */
+/* The box carries the dark background, so the number's own box can be just
+   the middle: hovering it lights up only the number. */
+.band-count-box { position: relative; flex: none; width: 68px; background: var(--field-bg); }
+.num-field.band-count { display: block; width: 28px; margin: 0 20px; background: none; }
+/* Each one lights up on its own, like the number between them: the box
+   shows which of the three a click would hit. */
+button.band-step {
+  position: absolute; top: 0; bottom: 0; width: 20px; padding: 0;
+  font: 600 var(--fs-body) var(--font); color: var(--accent);
+  background: none; border: var(--line) solid transparent; border-radius: 0;
+}
+button.band-step.minus { left: 0; }
+button.band-step.plus { right: 0; }
+button.band-step:hover:not(:disabled) { border-color: transparent; background: var(--field-hover); }
+
+/* ---------- Presets: picker in the bottom bar + save window ---------- */
+/* Follows the room in the bar, never the name: "New…" appearing (or a longer
+   name) doesn't shift what comes after it, and long names get "…". The small
+   basis is what the bar checks before folding, so the box shrinks first. */
+.presets { position: relative; display: flex; align-items: center; gap: 8px; flex: 1 1 140px; min-width: 0; max-width: 260px; }
+/* The same look as the editable numbers (.num-field): a dark box with cyan
+   text; hover = dark cyan box, no outline change; open = yellow outline. */
+.preset-current {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; justify-content: space-between;
+  color: var(--accent); background: var(--field-bg); border-color: var(--edge);
+}
+.preset-current:hover:not(:disabled) { border-color: var(--edge); background: var(--field-hover); }
+.preset-current.on, .preset-current.on:hover:not(:disabled) { border-color: var(--selected); }
+.preset-name { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* "New…": not a saved preset, so a dimmer cyan than a preset name. */
+.preset-name.new { color: color-mix(in srgb, var(--accent) 55%, transparent); }
+/* Edited: what you hear differs from the preset named here. */
+.preset-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.preset-menu { bottom: calc(100% + 6px); left: 0; min-width: 260px; max-height: 360px; overflow-y: auto; }
+/* One preset per row: the name loads it, the trash can (saved presets only) deletes it. */
+.preset-menu-row { display: flex; gap: 2px; }
+.preset-menu-row .preset-load { flex: 1; min-width: 0; }
+.menu .delete { height: 36px; padding: 0 10px; justify-content: center; }
+.menu button.icon.delete { width: 36px; padding: 0; }
+.menu-note { padding: 8px 10px; color: var(--text-faint); font-size: var(--fs-label); }
+
+.modal-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgb(0 0 0 / 0.55); }
+.modal {
+  width: min(460px, calc(100vw - 32px));
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 20px;
+  /* A brighter red than the list inside it, so the list reads as a sunken,
+     scrollable well. */
+  background: color-mix(in srgb, var(--bg) 82%, rgb(var(--base-rgb)));
+  border: var(--line) solid var(--edge-strong);
+  border-radius: 0;
+}
+.modal h2 { margin: 0; font: 600 20px var(--font); }
+.text-input {
+  height: 42px; padding: 0 14px;
+  font: inherit; color: var(--text);
+  background: var(--surface-raised);
+  border: var(--line) solid var(--edge-button);
+  border-radius: 0;
+  outline: none;
+}
+.text-input:hover { border-color: var(--hover); }
+.text-input:focus { border-color: var(--selected); }
+.text-input::placeholder { color: var(--text-faint); }
+.preset-list {
+  display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow-y: auto;
+  padding: 6px;
+  background: var(--bg);
+  border: var(--line) solid var(--edge);
+}
+.preset-row { display: flex; gap: 4px; }
+.preset-pick { flex: 1; height: 38px; padding: 0 16px; text-align: left; }
+.preset-pick.on { color: var(--selected); border-color: var(--selected); }
+.preset-locked { width: 76px; display: grid; place-items: center; color: var(--text-faint); font-size: var(--fs-label); }
+.preset-pick:disabled { opacity: 1; color: var(--text-faint); }
+.delete { height: 38px; padding: 0 16px; color: var(--text-faint); }
+button.icon.delete { width: 38px; }
+.delete.confirm { color: var(--warning); border-color: var(--warning); }
+.modal-note { min-height: 1.35em; color: var(--text-dim); font-size: var(--fs-label); }
+.crash-details {
+  margin: 0; max-height: 140px; overflow: auto; padding: 10px 12px;
+  background: var(--bg); border: var(--line) solid var(--edge);
+  color: var(--text); font: 12px/1.45 var(--font); white-space: pre-wrap; word-break: break-word;
+}
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* Save file… sits apart, on the left: it's not one of the preset actions. */
+.modal-actions .export { margin-right: auto; }
+
+/* ---------- Settings page (ui/settings) ----------
+ * A full-window page over the app: categories on the left, one column of
+ * content that centers in a big window and fills a small one. Each section
+ * (category, yellow heading) is one large surface box holding its rows; no
+ * lines between rows or sections.
+ */
+.settings-page {
+  position: fixed; inset: 0; z-index: 50;
+  display: grid;
+  --nav-w: 240px;
+  /* Shared top edge of the categories and the content: near the window's top
+     in a short window, moving down as it grows, to 240px in a full HD one. */
+  --top: clamp(40px, 40px + (100vh - 720px) * 0.625, 240px);
+  grid-template-columns: var(--nav-w) minmax(0, 1fr);
+  background: var(--bg);
+  outline: none;
+}
+.settings-nav {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: var(--top) 12px 20px;
+  background: var(--surface);
+}
+.settings-nav button {
+  height: 44px; padding: 0 14px;
+  text-align: left; color: var(--text-dim);
+}
+.settings-nav button:hover:not(:disabled) { border-color: transparent; color: var(--text); }
+/* The open category: yellow text and a yellow bar on its left edge. */
+.settings-nav .settings-cat.on { color: var(--selected); border-color: transparent; box-shadow: inset var(--line) 0 0 var(--selected); }
+.settings-back {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 16px;
+  font-size: 20px; font-weight: 600;
+}
+.settings-nav .settings-back { color: var(--text); padding-left: 8px; }
+.settings-back svg { color: var(--text-dim); }
+.settings-back:hover svg { color: var(--selected); }
+.settings-scroll { overflow-y: auto; }
+/* The column leans left: it would center, but never sits more than one nav
+   width away from the nav (a small window: 48px, the column fills the rest).
+   Its top space (--top, shared with the nav) is padding, so it scrolls away
+   with the content. */
+.settings-column {
+  --col-max: 900px;
+  max-width: var(--col-max);
+  margin-left: clamp(48px, (100% - var(--col-max)) / 2, var(--nav-w));
+  margin-right: 48px;
+  padding: var(--top) 0 64px;
+  container-type: inline-size;
+}
+
+.set-page { display: flex; flex-direction: column; gap: 40px; }
+.set-page-head h2 { margin: 0; font: 600 26px var(--font); color: var(--text); }
+.set-page-head p { margin: 8px 0 0; color: var(--text-dim); max-width: 60ch; }
+/* A section is one surface (--surface, the panels' color), no outline: the box
+   groups its rows, so the rows need no lines between them. */
+.set-section {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 20px 24px;
+  background: var(--surface);
+}
+.set-section h3 { margin: 0 0 8px; font: 600 18px var(--font); color: var(--selected); }
+
+/* One setting: what it is on the left, the control on the right. */
+.set-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  min-height: 52px; padding: 6px 0;
+}
+.set-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.set-label { color: var(--text); }
+.set-desc { color: var(--text-dim); font-size: var(--fs-label); }
+.set-control { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.set-row.stack { flex-direction: column; align-items: stretch; gap: 10px; }
+/* Narrow column: the control goes under its label. */
+@container (width < 520px) {
+  .set-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .set-control { flex-wrap: wrap; }
+}
+.set-path { overflow-wrap: anywhere; user-select: text; }
+.set-value { display: flex; align-items: center; gap: 10px; color: var(--text-dim); text-align: right; }
+.set-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: var(--text-faint); }
+.set-dot.on { background: var(--selected); }
+.set-dot.error { background: var(--warning); }
+.set-note { margin: 0; color: var(--text-dim); font-size: var(--fs-label); }
+/* What a page shows instead of going blank when it fails to draw (ErrorBoundary). */
+.error-boundary { display: grid; gap: 12px; justify-items: start; color: var(--warning); }
+.error-boundary pre { margin: 0; white-space: pre-wrap; color: var(--text-dim); font-size: var(--fs-label); user-select: text; }
+.settings-page .text-input { width: 240px; }
+
+/* Buttons on the settings page: the app's one boxed button (common/Button,
+   `.btn`), exactly as in the bottom bar. Danger = red text, for actions that
+   undo something. */
+.set-action { display: inline-flex; align-items: center; color: var(--text-dim); text-decoration: none; white-space: nowrap; }
+.set-action.danger { color: var(--warning); }
+
+/* 2–3 choices side by side; the chosen one is yellow (text and outline). */
+.segmented { display: flex; gap: 4px; }
+.segmented .btn { display: flex; align-items: center; gap: 10px; color: var(--text-dim); }
+.segmented .btn.on { color: var(--selected); }
+/* Dropdown for 4+ choices. */
+.set-select { position: relative; }
+.set-select > .btn { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 220px; color: var(--text-dim); }
+.set-select > .btn.on { color: var(--text); }
+.set-select .menu { top: calc(100% + 6px); right: 0; min-width: 100%; }
+
+/* Key chips. */
+.set-keys { display: flex; align-items: center; gap: 10px; }
+.set-combo { display: flex; align-items: center; gap: 4px; }
+.set-or { color: var(--text-faint); font-size: var(--fs-label); margin-right: 6px; }
+kbd {
+  min-width: 32px; padding: 4px 8px;
+  font: 600 var(--fs-label)/1.2 var(--font); text-align: center;
+  color: var(--text);
+  background: var(--field-bg);
+  border: var(--line) solid var(--edge-button);
+}
+
+/* ---------- Top and bottom bars: the main controls ---------- */
+.topbar, .bottombar {
+  display: flex;
+  align-items: center;
+  /* In a narrow window (or with many bands) the controls wrap to a second
+     line instead of sliding under the band panel. */
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  min-width: 0;
+  padding: 10px;
+  background: var(--surface);
+  border: var(--line) solid var(--edge);
+  border-radius: 0;
+}
+/* Slimmer: every pixel here comes off the graph's height. */
+.topbar { padding: 4px 10px; }
+/* Pinned to the right end of its bar, also when the bar wraps. */
+.bar-end { margin-left: auto; flex-shrink: 0; }
+.topbar button, .bottombar button { flex-shrink: 0; }
+/* Above the graph: the source list opens down over it, the preset list up. */
+.topbar, .bottombar { position: relative; z-index: 5; }
+.group { display: flex; align-items: center; gap: 8px; }
+/* The app's icon and name in the top bar: no box until hovered, so it reads as
+   a name, not a command. */
+.btn.brand { display: flex; align-items: center; gap: 8px; padding: 0 8px; background: none; border-color: transparent; font: 600 20px/1 var(--font-brand); color: var(--text); }
+.brand img { width: 30px; height: 30px; }
+/* The About window & Settings → About: the same content (About.tsx), styled
+   the same way. Only the window part (scrolling, background) is the modal's. */
+.modal.about {
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 120px); overflow-y: auto;
+  background: var(--surface-solid);
+}
+.about-panel { width: min(760px, 100%); }
+.modal.about, .about-panel { gap: 20px; align-items: center; text-align: center; }
+:is(.modal.about, .about-panel) > img { width: 240px; height: 240px; }
+:is(.modal.about, .about-panel) h2 { margin: 0; font: 600 28px/1 var(--font-brand); }
+:is(.modal.about, .about-panel) p { margin: 0; max-width: 78ch; }
+:is(.modal.about, .about-panel) .warn { color: var(--warning); }
+:is(.modal.about, .about-panel) .modal-actions { align-self: stretch; flex-wrap: wrap; justify-content: center; }
+.about-update { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.about-credits { margin: 0; padding: 0; list-style: none; color: var(--text-dim); font-size: var(--fs-label); line-height: 1.6; }
+.balance { position: relative; display: grid; width: 44px; height: 42px; }
+.balance .knob { margin: 0; }
+/* L and R at the two ends of the knob's arc. */
+.balance span {
+  position: absolute; bottom: 0; pointer-events: none;
+  font: 600 var(--fs-label)/1 var(--font); color: var(--text-dim);
+}
+.balance .left { left: 3px; }
+.balance .right { right: 3px; }
+
+button.icon { width: 42px; padding: 0; display: grid; place-items: center; }
+
+/* Heat sensitivity: a small picture of its curve (the .heat-gamma box is the frame). */
+.heat-curve .linear { stroke: var(--edge-strong); stroke-width: 1.5; stroke-dasharray: 2 3; fill: none; }
+.heat-curve .shape { stroke: var(--selected); stroke-width: 2; fill: none; stroke-linecap: round; }
+/* Clickable (on/off): the usual edge outline, cyan on hover. */
+/* contain: size = the meter takes the rows' height but never sets it. Its
+   canvas is sized to its box (LevelMeter), so without this the canvas held
+   the two auto rows open: one bigger size mid-resize (a Windows snap) and the
+   bottom bar stayed pushed up for good. */
+.level-meter { display: grid; justify-items: center; min-height: 0; overflow: hidden; contain: size; cursor: pointer; border: var(--line) solid transparent; }
+.level-meter:hover { border-color: var(--hover); }
+.level-meter:focus-visible { outline: var(--line) solid var(--accent); outline-offset: 2px; }
+.level-meter canvas { display: block; }
+/* An invisible box over the red LEDs, only there for its tooltip. */
+.level-meter .meter-body { position: relative; }
+.level-meter .meter-red { position: absolute; left: 0; right: 0; }
+/* Buttons on the graph (GraphTools): one row along the top edge, left
+   aligned (input, view, view options), plus split view's lower-half
+   options stacked up the left edge from the bottom left corner. */
+.graph-toolbar, .graph-corner, .graph-fullscreen { position: absolute; z-index: 2; }
+/* Fullscreen: bottom right, the plain see-through box (not the
+   toolbar's dark node base), square around its icon. */
+.graph-fullscreen { right: 10px; bottom: 10px; }
+.graph-fullscreen .btn { width: 42px; padding: 0; display: grid; place-items: center; }
+.graph-toolbar { top: 10px; left: 10px; right: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+/* A narrow graph: the groups (views, options, readout) wrap onto more
+   lines. The row spans the graph, so its empty parts let clicks through to it. */
+.graph-toolbar { pointer-events: none; }
+.graph-toolbar > * { pointer-events: auto; }
+.graph-tools-row.graph-corner { left: 10px; bottom: 10px; flex-direction: column-reverse; align-items: flex-start; }
+/* Each button is its own natural size (no shared width): text buttons fit
+   their word, icon buttons are square around the icon. */
+.graph-tools-row { display: flex; align-items: center; gap: 4px; }
+.graph-tools-row button { height: 32px; padding: 0 10px; background: var(--node-base); color: var(--text-dim); }
+.graph-tools-row button.view:has(svg) { width: 32px; padding: 0; display: grid; place-items: center; }
+/* On: yellow outline and text only; the background stays the dark node base (a
+   translucent yellow tint let the curve show through over the graph). */
+.graph-tools-row button.on, .graph-tools-row button.toggle.on { color: var(--selected); border-color: var(--selected); background: var(--node-base); }
+/* Heat sensitivity: the curve picture is the control (scroll / drag). */
+/* Same box as the buttons beside it: the dark node base (nothing shows through
+   from the graph), the usual edge outline, cyan on hover. */
+.heat-gamma {
+  display: grid; place-items: center; padding: 0; /* hugs its curve */
+  cursor: ns-resize; touch-action: none;
+  background: var(--node-base);
+  border: var(--line) solid var(--edge-button);
+  transition: border-color 0.12s;
+}
+.heat-gamma:hover { border-color: var(--hover); }
+/* Source picker (desktop): which output is captured, and Windows' facts about it. */
+.source { position: relative; display: flex; min-width: 0; }
+/* Solid: the whole-name copy below lies over the preset picker. */
+.source-current { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 300px; background: var(--node-base); }
+.topbar .source-current { flex-shrink: 1; }
+.source-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The whole name over the button while hovered; the mouse goes through it. */
+.source-current.source-full { position: absolute; top: 0; left: 0; z-index: 2; width: max-content; max-width: none; border-color: var(--hover); pointer-events: none; }
+/* The output's sample rate, faint beside the picker. */
+.source-rate { color: var(--text-faint); font-size: var(--fs-label); white-space: nowrap; }
+.source-menu { top: calc(100% + 6px); left: 0; width: 360px; max-height: 70vh; overflow-y: auto; }
+.source-menu [role="listbox"] { display: flex; flex-direction: column; }
+.source-heading { color: var(--text-dim); padding-bottom: 2px; }
+.source-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; padding: 4px 10px; font-size: var(--fs-label); }
+.source-facts dt { color: var(--text-faint); }
+.source-facts dd { margin: 0; color: var(--text-dim); }
+.source-menu .warn { color: var(--warning); }
+.file-status { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 6px; color: var(--text-dim); font-size: var(--fs-label); }
+.file-status .led { width: 9px; height: 9px; border-radius: 50%; background: var(--selected); }
+.file-status.error { color: var(--warning); }
+.file-status.error .led { background: var(--warning); }
+/* Equalizer APO isn't on the output you're listening to (DeviceWarning.tsx). */
+.device-warning { display: flex; align-items: center; gap: 4px; }
+.device-warning button { border-color: var(--warning); color: var(--warning); }
+/* A/B, L/R (PairSwitch.tsx): ONE button, a click anywhere switches slots. Both
+   letters show; the one you hear is lit like a chosen segment. */
+button.pair-switch { display: flex; align-items: center; gap: 2px; padding: 3px; }
+.pair-switch span {
+  height: 32px; padding: 0 14px; display: grid; place-items: center;
+  border: var(--line) solid transparent; color: var(--text-dim);
+}
+.pair-switch span.on { background: var(--selected-tint); color: var(--selected); border-color: var(--selected); }
+
+/* On/off button (e.g. Hold): a faint yellow box when on. */
+button.toggle.on { color: var(--selected); background: var(--selected-tint); }
+
+button.primary { color: var(--on-selected); background: var(--selected); border-color: transparent; font-weight: 600; }
+button.primary:hover:not(:disabled) { background: var(--selected); border-color: var(--hover); }
+
+/* ---------- Band panel ---------- */
+.band-panel {
+  display: grid;
+  grid-template-rows: subgrid;
+  row-gap: var(--row-gap);
+  grid-auto-flow: column;
+  /* Columns: --col-max is the full width, the same at every window size;
+     BandPanel sets --col-w (narrower with 8+ bands per row). The Level column
+     always gets the full width, plus room for its divider (see .band-col.level). */
+  --col-max: 48px;
+  --level-w: calc(var(--col-max) + 10px);
+  grid-auto-columns: var(--col-w, var(--col-max));
+  column-gap: 0; /* columns touch: no dead strips between bands */
+  padding: 0 8px;
+  background: var(--surface);
+  border: var(--line) solid var(--edge);
+  border-radius: 0;
+}
+.band-col {
+  grid-row: 1 / 5;
+  display: grid;
+  grid-template-rows: subgrid;
+  border-radius: 0;
+}
+.band-col.off .fader-bar, .band-col.off .knob-face { opacity: 0.35; }
+/* Another band is soloed: this one is silent for now, dimmed like an off band
+   (its number stays as it is: the band is still on). */
+.band-col.muted .fader-bar, .band-col.muted .knob-face { opacity: 0.35; }
+/* 11+ bands (BandPanel.tsx): two decks stacked beside the Level column, each
+   with its own four rows (heads, faders, Freq knobs, Q knobs). The faders
+   share what's left of the height. */
+.band-decks {
+  grid-row: 1 / 5;
+  display: grid; grid-template-rows: 1fr 1fr; row-gap: var(--row-gap);
+  min-height: 0;
+}
+.band-deck {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto; row-gap: var(--row-gap);
+  grid-auto-flow: column;
+  min-height: 0;
+}
+.band-deck + .band-deck { border-top: var(--line) solid var(--edge); }
+/* The Level column's Freq / Q labels only line up with an undivided panel. */
+.band-panel.split .level .row-label { visibility: hidden; }
+/* The divider gets the panel's 8px padding on its left too, so the Level
+   fader sits centered between the panel's edge and the divider. */
+.band-col.level { margin-right: 8px; padding-right: 8px; border-right: var(--line) solid var(--edge); border-radius: 0;  --col-w: var(--level-w); /* the Level column never narrows */ }
+
+/* One cell per app row. */
+/* Head: shape button and number sit at the BOTTOM of the cell, spaced like
+   the row gap, so shape → number → fader top are equal distances (8px). */
+.col-head { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: var(--row-gap); padding: 10px 0 0; }
+/* The fader cell sits beside the graph and its bar is exactly as tall as the
+   graph (same border width too). Inside, the circle travels from
+   --gain-margin below the top to --gain-margin above the bottom: exactly the
+   graph's top and bottom dB lines (see Fader in controls.tsx). */
+.col-fader, .col-freq, .col-q { display: grid; min-height: 0; }
+.row-label { font-size: var(--fs-label); color: var(--scale); place-items: center; }
+/* The Q knobs' hit area doesn't reach below the last row (see .col-q .knob), so
+   their centers sit 2px higher; follow them. */
+.col-q.row-label { padding-bottom: calc(var(--row-gap) / 2); }
+/* "Q" right-aligned under "Freq": both in one grid cell, the hidden "Freq"
+   sets the width (works with every font). */
+.label-under { display: grid; justify-items: end; }
+.label-under > * { grid-area: 1 / 1; }
+.label-under > .sizer { visibility: hidden; }
+
+/* Filter shape: translucent tab with a fully colored icon */
+.band-col .type {
+  width: calc(min(var(--col-w, var(--col-max)), var(--col-max)) - 10px); height: 30px; padding: 0;
+  display: grid; place-items: center;
+  color: var(--band);
+  background: color-mix(in srgb, var(--band) 14%, transparent);
+  border: var(--line) solid color-mix(in srgb, var(--band) 35%, transparent);
+}
+.band-col.off .type { color: var(--text-faint); background: var(--surface-raised); border-color: var(--edge); }
+.band-col .type.auto { color: var(--text-dim); background: var(--surface-raised); border-color: var(--edge-button); font-size: var(--fs-label); }
+.band-col .type.auto.on { color: var(--selected); background: var(--selected-tint); border-color: var(--selected); }
+.band-col .type.auto:hover:not(:disabled) { border-color: var(--hover); }
+
+
+/* Shared by knob and fader.
+   The control element is the HIT AREA: it fills its whole cell and reaches
+   halfway into the row gaps (negative margin = half of --row-gap), so the
+   panel has no dead space. The visible part sits inside. */
+.knob, .fader {
+  cursor: ns-resize; touch-action: none;
+  align-self: stretch; justify-self: stretch;
+  margin: calc(var(--row-gap) / -2) 0;
+}
+.col-q .knob { margin-bottom: 0; } /* last row: nothing below to reach into */
+.knob.disabled, .fader.disabled { cursor: default; }
+.knob.disabled .knob-face, .fader.disabled .fader-bar { opacity: 0.25; }
+
+/* Knob: arc only, never a full circle */
+.knob { display: grid; place-items: center; }
+.knob-face { overflow: visible; }
+.knob-track { fill: none; stroke: color-mix(in srgb, var(--band) 16%, transparent); stroke-width: 4; stroke-linecap: round; }
+.knob-value { fill: none; stroke: var(--band); stroke-width: 4; stroke-linecap: round; }
+
+/* Fader: the hit area carries the alignment padding (see .col-fader), the
+   bar inside is the visible part. */
+.fader {
+  display: flex; justify-content: center;
+  min-height: 0;
+  padding: calc(var(--row-gap) / 2) 0; /* = the hit area's reach into the row gap */
+}
+.fader-bar {
+  position: relative;
+  height: 100%;
+  min-height: 60px;
+  width: 24px;
+  border-radius: 12px;
+  background: var(--surface-raised);
+  /* Plain background and the same subdued red outline as every other edge.
+     Only the thumb and the fill (distance from 0 dB) are in the band's color. */
+  border: var(--line) solid var(--edge-strong);
+  transition: background 0.12s, border-color 0.12s;
+}
+/* Fader hover: the red outline brightens a little (no cyan); the rainbow parts light up (below).
+   Hovering or dragging the band's node on the graph (.graph-hot) looks the same. */
+.fader:hover:not(.disabled) .fader-bar,
+.band-col.graph-hot .fader:not(.disabled) .fader-bar { border-color: var(--hover); }
+/* Selected band: full bright red outline that stays (stronger than hover). */
+.band-col.selected .fader-bar { border-color: var(--base); }
+/* Soloed band (right-click the fader): its bar is outlined in yellow, the "on" color. */
+.band-col.solo .fader-bar { border-color: var(--selected); }
+.fader-zero { position: absolute; left: 5px; right: 5px; top: 50%; height: var(--line); margin-top: calc(var(--line) / -2); background: var(--edge); }
+/* The fill shows how far the value is from 0 dB, in the band's color. At 0 dB there's no fill. */
+.fader-fill { position: absolute; left: 3px; right: 3px; border-radius: 9px; background: color-mix(in srgb, var(--band) 30%, transparent); transition: background 0.12s; }
+.fader-thumb {
+  position: absolute; left: 50%;
+  width: calc(2 * var(--thumb-r)); height: calc(2 * var(--thumb-r));
+  transform: translate(-50%, 50%);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--band) 35%, transparent);
+  border: 2px solid var(--band);
+  transition: background 0.12s, border-color 0.12s;
+}
+
+/* Selected band: its shape button is filled with the band color, so you can
+   see which band the readout on the graph belongs to. */
+.band-col.selected .type:not(.auto) { background: color-mix(in srgb, var(--band) 30%, transparent); color: var(--band-hot); border-color: var(--band); }
+
+/* Hover on a band control: its rainbow parts light up, ONE effect for all of
+   them (shape button, fader circle and fill, knob arc): the color is
+   pushed toward white (--band-hot). No glow, no cyan outline. */
+.band-col, .fader, .knob {
+  --band-hot: color-mix(in srgb, var(--band) 60%, white);
+}
+.band-col .type:not(.auto):hover:not(:disabled) {
+  color: var(--band-hot);
+  border-color: var(--band-hot);
+}
+.fader:hover:not(.disabled) .fader-thumb,
+.band-col.graph-hot .fader:not(.disabled) .fader-thumb,
+.band-col.selected .fader:not(.disabled) .fader-thumb {
+  background: color-mix(in srgb, var(--band) 60%, transparent);
+  border-color: var(--band-hot);
+}
+.fader:hover:not(.disabled) .fader-fill,
+.band-col.graph-hot .fader:not(.disabled) .fader-fill,
+.band-col.selected .fader:not(.disabled) .fader-fill {
+  background: color-mix(in srgb, var(--band) 60%, transparent);
+}
+.knob:hover:not(.disabled) .knob-value { stroke: var(--band-hot); }
+.knob:hover:not(.disabled) .knob-track { stroke: color-mix(in srgb, var(--band) 30%, transparent); }
+.band-col.off .type:hover:not(:disabled) { color: var(--text-dim); }

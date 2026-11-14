@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the main window may do: the core APIs (incl. channels for the spectrum) and the Save window (export).",
+  "windows": ["main"],
+  "permissions": ["core:default", "core:window:allow-set-fullscreen", "dialog:allow-save", "dialog:allow-open", "updater:default", "process:allow-restart"]
+}
